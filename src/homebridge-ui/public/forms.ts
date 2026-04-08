@@ -7,8 +7,7 @@ import { IHomebridgeUiFormHelper, PluginConfig, PluginFormSchema } from '@homebr
 import { ClientIPC } from './client-ipc.js';
 import { Config } from './config.js';
 import { ConfigPlugin } from '../../config-types.js';
-import type { IdentifyApplianceStatus } from '../schema-data.js';
-import { elementWithAbsolutePaths, cloneTemplate, getElementById, getHTML } from './utils-dom.js';
+import { elementWithAbsolutePaths, cloneTemplate, getHTML } from './utils-dom.js';
 
 // A configuration form handler
 export abstract class Form {
@@ -89,8 +88,6 @@ export class GlobalForm extends Form {
 
 // An configuration form handler for a specific appliance
 export class ApplianceForm extends Form {
-    identifyRequestId?: string;
-
     constructor(log:                Logger,
                 readonly ipc:       ClientIPC,
                 readonly config:    Config,
@@ -98,87 +95,9 @@ export class ApplianceForm extends Form {
         super(log);
     }
 
-    patchSchema(schema: PluginFormSchema): PluginFormSchema {
-        const form = [
-            ...(schema.form ?? []),
-            ...this.formFromTemplate('hc-form-identify'),
-            ...this.formFromTemplate('hc-form-footer')
-        ];
-        return { ...schema, form };
-    }
-
-    async createForm(): Promise<void> {
-        await super.createForm();
-        this.attachIdentifyAction();
-    }
-
     getSchema(): Promise<PluginFormSchema>      { return this.ipc.request('/schema/appliance', this.haid); }
     getData(): Promise<PluginConfig>            { return this.config.getAppliance(this.haid); }
     putData(data: PluginConfig): Promise<void>  { return this.config.setAppliance(this.haid, data); }
-
-    // Attach the identify button to the current form
-    attachIdentifyAction(): void {
-        const button  = getElementById('hc-identify-button') as HTMLButtonElement;
-        const loading = getElementById('hc-identify-loading');
-        const message = getElementById('hc-identify-message');
-        const output  = getElementById('hc-identify-output');
-
-        const setMessage = (text: string, kind: 'info' | 'success' | 'error'): void => {
-            message.textContent = text;
-            message.classList.remove('hc-identify-info', 'hc-identify-success', 'hc-identify-error');
-            message.classList.add(`hc-identify-${kind}`);
-        };
-        const setLoading = (active: boolean): void => {
-            button.disabled = active;
-            loading.hidden = !active;
-        };
-        const showOutput = (status: IdentifyApplianceStatus): void => {
-            const text = status.output?.trim();
-            output.textContent = text ?? '';
-            output.hidden = !text;
-        };
-        const renderStatus = (status: IdentifyApplianceStatus): boolean => {
-            showOutput(status);
-            switch (status.state) {
-            case 'pending':
-                setMessage('Identify request queued. Waiting for the running plugin instance to pick it up.', 'info');
-                return false;
-            case 'running':
-                setMessage('Identify is running. Full output is also being written to the Homebridge log.', 'info');
-                return false;
-            case 'success':
-                setMessage('Identify completed. Full output is shown below and in the Homebridge log.', 'success');
-                return true;
-            case 'error':
-                setMessage(`Identify failed${status.error ? `: ${status.error}` : ''}`, 'error');
-                return true;
-            }
-        };
-
-        button.onclick = async (): Promise<void> => {
-            setLoading(true);
-            setMessage('Submitting identify request...', 'info');
-            output.hidden = true;
-            output.textContent = '';
-            try {
-                const requested = await this.ipc.request('/identify/appliance', this.haid);
-                this.identifyRequestId = requested.requestId;
-                renderStatus(requested);
-
-                while (this.identifyRequestId === requested.requestId) {
-                    const status = await this.ipc.request('/identify/status', requested.requestId);
-                    const done = renderStatus(status);
-                    if (done) break;
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            } catch (err) {
-                const text = err instanceof Error ? err.message : String(err);
-                setMessage(`Unable to run identify: ${text}`, 'error');
-            } finally {
-                setLoading(false);
-            }
-        };
-    }
 }
 
 // A placeholder form handler
