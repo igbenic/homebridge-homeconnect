@@ -9,6 +9,10 @@ import NodePersist from 'node-persist';
 import { HomeAppliance } from '../api-types.js';
 import { logError } from '../log-error.js';
 
+// Persistent key used to communicate identify requests/results between the
+// Homebridge runtime and the Homebridge custom UI server.
+const IDENTIFY_APPLIANCE_KEY = 'config.identify.json';
+
 // Appliance programs and their options
 export interface SchemaProgram {
     key:                    string;
@@ -48,6 +52,20 @@ export interface SchemaAppliance extends HomeAppliance {
     hasControl?:            boolean;
     programs:               SchemaProgramWithOptions[];
     features:               SchemaOptionalFeature[];
+}
+
+// Progress and result of an appliance identify request triggered from the UI
+export type IdentifyApplianceState = 'pending' | 'running' | 'success' | 'error';
+export interface IdentifyApplianceStatus {
+    requestId:              string;
+    haId:                   string;
+    applianceName?:         string;
+    state:                  IdentifyApplianceState;
+    createdAt:              number;
+    startedAt?:             number;
+    completedAt?:           number;
+    output?:                string;
+    error?:                 string;
 }
 
 // Format for the persistent data
@@ -207,5 +225,93 @@ export class ConfigSchemaData {
         } catch (err) {
             logError(this.log, 'Failed to save configuration schema data', err);
         }
+    }
+
+    // Retrieve the most recent appliance identify request/result
+    async getIdentifyAppliance(requestId?: string): Promise<IdentifyApplianceStatus | undefined> {
+        try {
+            const identify = await this.persist.getItem(IDENTIFY_APPLIANCE_KEY) as IdentifyApplianceStatus | undefined;
+            if (requestId && identify?.requestId !== requestId) return;
+            return identify;
+        } catch (err) {
+            logError(this.log, 'Failed to load identify appliance request', err);
+        }
+    }
+
+    // Store the latest appliance identify request/result
+    async setIdentifyAppliance(identify: IdentifyApplianceStatus): Promise<void> {
+        try {
+            await this.persist.setItem(IDENTIFY_APPLIANCE_KEY, identify);
+        } catch (err) {
+            logError(this.log, 'Failed to save identify appliance request', err);
+        }
+    }
+
+    // Create a new appliance identify request
+    async requestIdentifyAppliance(haId: string): Promise<IdentifyApplianceStatus> {
+        let identify!: IdentifyApplianceStatus;
+        await this.exclusive(async () => {
+            const current = await this.getIdentifyAppliance();
+            if (current && ['pending', 'running'].includes(current.state)) {
+                if (current.haId === haId) {
+                    identify = current;
+                    return;
+                }
+                const appliance = current.applianceName ?? current.haId;
+                throw new Error(`Another identify request is already ${current.state} for ${appliance}`);
+            }
+            identify = {
+                requestId:      `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+                haId:           haId,
+                applianceName:  this.appliances.get(haId)?.name,
+                state:          'pending',
+                createdAt:      Date.now()
+            };
+            await this.setIdentifyAppliance(identify);
+        });
+        return identify;
+    }
+
+    // Mark an appliance identify request as running
+    async startIdentifyAppliance(requestId: string, applianceName?: string): Promise<IdentifyApplianceStatus | undefined> {
+        let identify: IdentifyApplianceStatus | undefined;
+        await this.exclusive(async () => {
+            const current = await this.getIdentifyAppliance(requestId);
+            if (current?.state !== 'pending') return;
+            identify = {
+                ...current,
+                applianceName:  applianceName ?? current.applianceName,
+                state:          'running',
+                startedAt:      Date.now(),
+                completedAt:    undefined,
+                output:         '',
+                error:          undefined
+            };
+            await this.setIdentifyAppliance(identify);
+        });
+        return identify;
+    }
+
+    // Mark an appliance identify request as completed
+    async finishIdentifyAppliance(requestId: string,
+                                  state: Extract<IdentifyApplianceState, 'success' | 'error'>,
+                                  output: string,
+                                  error?: string,
+                                  applianceName?: string): Promise<IdentifyApplianceStatus | undefined> {
+        let identify: IdentifyApplianceStatus | undefined;
+        await this.exclusive(async () => {
+            const current = await this.getIdentifyAppliance(requestId);
+            if (!current) return;
+            identify = {
+                ...current,
+                applianceName:  applianceName ?? current.applianceName,
+                state:          state,
+                completedAt:    Date.now(),
+                output:         output,
+                error:          error
+            };
+            await this.setIdentifyAppliance(identify);
+        });
+        return identify;
     }
 }

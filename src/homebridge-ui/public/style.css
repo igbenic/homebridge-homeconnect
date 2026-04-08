@@ -68,6 +68,33 @@ body {
     white-space:    pre-wrap;
 }
 
+/* Appliance identify panel */
+
+#hc-identify-output {
+    margin-top:     0.75rem;
+    max-height:     20rem;
+    overflow:       auto;
+    padding:        0.75rem;
+    white-space:    pre-wrap;
+    font-family:    var(--font-family-monospace);
+    font-size:      0.75rem;
+    border:         1px solid var(--bs-border-color);
+    border-radius:  var(--bs-border-radius);
+    background:     var(--bs-tertiary-bg);
+}
+
+#hc-identify-message.hc-identify-info {
+    color:          var(--bs-secondary-color);
+}
+
+#hc-identify-message.hc-identify-success {
+    color:          var(--bs-success-text-emphasis);
+}
+
+#hc-identify-message.hc-identify-error {
+    color:          var(--bs-danger-text-emphasis);
+}
+
 /* Cards listing global options and appliances */
 
 #hc-appliance-cards .col {

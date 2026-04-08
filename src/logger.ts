@@ -20,6 +20,16 @@ const filters: [(value: string) => string, RegExp][] = [
     [maskApplianceId,   new RegExp(`\\b${HAID_PATTERN}\\b`, 'g')]
 ];
 
+// Structured log entry emitted by PrefixLogger
+export interface PrefixLogEntry {
+    level:      LogLevel;
+    logger:     PrefixLogger;
+    prefix?:    string;
+    message:    string;
+}
+type PrefixLogListener = (entry: PrefixLogEntry) => void;
+const listeners = new Set<PrefixLogListener>();
+
 // A logger with filtering and support for an additional prefix
 export class PrefixLogger {
 
@@ -47,7 +57,15 @@ export class PrefixLogger {
 
         // Log each line of the message
         const prefix = this.prefix?.length ? `[${this.prefix}] ` : '';
-        for (const line of message.split('\n')) this.logger.log(level, prefix + line);
+        for (const line of message.split('\n')) {
+            const output = prefix + line;
+            this.logger.log(level, output);
+            listeners.forEach(listener => {
+                try {
+                    listener({ level, logger: this, prefix: this.prefix, message: output });
+                } catch { /* empty */ }
+            });
+        }
     }
 
     // Log all DEBUG messages as INFO to avoid being dropped by Homebridge
@@ -76,6 +94,12 @@ export class PrefixLogger {
             filters.push([maskApplianceId, new RegExp(`\\b${haId}\\b`, 'g')]);
         }
         applianceIds.set(haId, name);
+    }
+
+    // Capture log entries emitted by any PrefixLogger instance
+    static addListener(listener: PrefixLogListener): () => void {
+        listeners.add(listener);
+        return (): void => { listeners.delete(listener); };
     }
 }
 

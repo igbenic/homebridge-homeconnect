@@ -13,6 +13,7 @@ import { ServerIPC } from './server-ipc.js';
 import { ServerLogger } from './logger.js';
 import { ConfigPlugin } from '../config-types.js';
 import { ClientIDStatus, ServerClientID } from './server-clientid.js';
+import type { IdentifyApplianceStatus } from './schema-data.js';
 
 // A Homebridge HomeConnect custom UI server
 export class HomeConnectServer extends HomebridgePluginUiServer {
@@ -43,6 +44,8 @@ export class HomeConnectServer extends HomebridgePluginUiServer {
         this.ipc.onRequest('/clientid/retry',   ()     => this.retryAuthorisation());
         this.ipc.onRequest('/schema/global',    ()     => this.getSchemaGlobal());
         this.ipc.onRequest('/schema/appliance', haid   => this.getSchemaAppliance(haid));
+        this.ipc.onRequest('/identify/appliance', haid => this.identifyAppliance(haid));
+        this.ipc.onRequest('/identify/status', requestId => this.getIdentifyStatus(requestId));
 
         // Prepare local resources
         this.persist  = this.preparePersistentStorage();
@@ -106,6 +109,23 @@ export class HomeConnectServer extends HomebridgePluginUiServer {
         const schema = await (await this.schema).getSchemaAppliance(haid);
         if (!schema) throw new RequestError(`Appliance not found: ${haid}`, { status: 404 });
         return schema;
+    }
+
+    // Request that the running platform identifies a specified appliance
+    async identifyAppliance(haid: string): Promise<IdentifyApplianceStatus> {
+        try {
+            return await (await this.schema).requestIdentifyAppliance(haid);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new RequestError(message, { status: 409 });
+        }
+    }
+
+    // Retrieve the status of an appliance identify request
+    async getIdentifyStatus(requestId: string): Promise<IdentifyApplianceStatus> {
+        const identify = await (await this.schema).getIdentifyAppliance(requestId);
+        if (!identify) throw new RequestError(`Identify request not found: ${requestId}`, { status: 404 });
+        return identify;
     }
 }
 

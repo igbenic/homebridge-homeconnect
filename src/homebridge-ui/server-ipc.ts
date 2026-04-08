@@ -7,6 +7,7 @@ import { HomebridgePluginUiServer, RequestError } from '@homebridge/plugin-ui-ut
 import { FormSchema } from './schema.js';
 import { ConfigPlugin } from '../config-types.js';
 import { ClientIDStatus } from './server-clientid.js';
+import type { IdentifyApplianceStatus } from './schema-data.js';
 import { logError } from '../log-error.js';
 
 // Client to server requests and their responses
@@ -17,6 +18,8 @@ export interface ServerRequests {
     '/config':              { request: null;            response: PlatformConfig };
     '/schema/global':       { request: null;            response: FormSchema };
     '/schema/appliance':    { request: string;          response: FormSchema };
+    '/identify/appliance':  { request: string;          response: IdentifyApplianceStatus };
+    '/identify/status':     { request: string;          response: IdentifyApplianceStatus };
 }
 export type ServerPath = keyof ServerRequests;
 export type ServerRequest <Path extends ServerPath> = ServerRequests[Path]['request'];

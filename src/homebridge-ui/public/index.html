@@ -164,6 +164,27 @@
     </div>
 </template>
 
+<template id="hc-form-identify">
+    <hr>
+    <div id="hc-identify-panel" class="help-block">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h4 class="mb-1">Identify appliance</h4>
+                <p class="mb-0">
+                    Run the plugin's existing identify and program discovery routine for this appliance.
+                    The full output is written to the Homebridge log and shown below when available.
+                </p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <button id="hc-identify-button" type="button" class="btn btn-primary">Identify appliance</button>
+                <span id="hc-identify-loading" class="spinner-border spinner-border-sm" aria-hidden="true" hidden></span>
+            </div>
+        </div>
+        <div id="hc-identify-message" class="small mt-2 hc-identify-info"></div>
+        <pre id="hc-identify-output" hidden></pre>
+    </div>
+</template>
+
 <template id="hc-form-footer">
     <hr>
     <div class="d-flex justify-content-between help-block small">

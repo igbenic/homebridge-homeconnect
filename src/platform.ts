@@ -35,6 +35,7 @@ import { typeSuite, checkers } from './ti/config-types.js';
 // Interval between updating the list of appliances
 // (only 1000 API calls allowed per day, so only check once an hour)
 const UPDATE_APPLIANCES_DELAY = 60 * 60 * MS;
+const IDENTIFY_APPLIANCE_DELAY = 1 * MS;
 
 // Accessory information
 interface AccessoryLinkage {
@@ -106,6 +107,9 @@ export class HomeConnectPlatform implements DynamicPlatformPlugin {
 
             // Start polling the list of Home Connect appliances
             this.updateAppliances();
+
+            // Process any identify requests triggered from the Homebridge UI
+            this.processIdentifyAppliances();
         } catch (err) {
             logError(this.log, 'Plugin initialisation', err);
         }
@@ -187,6 +191,80 @@ export class HomeConnectPlatform implements DynamicPlatformPlugin {
                 logError(this.log, 'Reading list of home appliances', err);
             }
             await setTimeoutP(UPDATE_APPLIANCES_DELAY);
+        }
+    }
+
+    // Periodically process identify requests triggered from the Homebridge UI
+    async processIdentifyAppliances(): Promise<never> {
+        for (;;) {
+            try {
+                await this.processPendingIdentifyAppliance();
+            } catch (err) {
+                logError(this.log, 'Processing identify request from Homebridge UI', err);
+            }
+            await setTimeoutP(IDENTIFY_APPLIANCE_DELAY);
+        }
+    }
+
+    // Process a single pending identify request, if any
+    async processPendingIdentifyAppliance(): Promise<void> {
+        assertIsDefined(this.schema);
+        const identify = await this.schema.getIdentifyAppliance();
+        if (identify?.state !== 'pending') return;
+
+        // Find the matching accessory implementation
+        const linkage = this.accessories.get(this.makeUUID(identify.haId));
+        const implementation = linkage?.implementation;
+        const applianceName = implementation?.device.ha.name ?? identify.applianceName ?? identify.haId;
+
+        // Claim the request so that it cannot be processed twice
+        const claimed = await this.schema.startIdentifyAppliance(identify.requestId, applianceName);
+        if (!claimed) return;
+
+        // Unsupported or disabled appliances do not have a live implementation
+        if (!implementation) {
+            const output = [
+                `Identify requested from Homebridge UI for appliance: ${applianceName} (${identify.haId})`,
+                `Identify failed from Homebridge UI for appliance: ${applianceName} (${identify.haId})`,
+                'No live appliance implementation is available for this appliance'
+            ].join('\n');
+            this.log.error(output);
+            await this.schema.finishIdentifyAppliance(
+                identify.requestId,
+                'error',
+                output,
+                'No live appliance implementation is available for this appliance',
+                applianceName);
+            return;
+        }
+
+        // Capture the exact identify log output for this appliance and store it for the UI
+        const identifyLines: string[] = [];
+        const removeListener = PrefixLogger.addListener(entry => {
+            if (entry.logger === implementation.log) identifyLines.push(entry.message);
+        });
+        try {
+            implementation.log.info(`Identify requested from Homebridge UI for appliance: ${applianceName} (${identify.haId})`);
+            await implementation.identify();
+            implementation.log.info(`Identify completed from Homebridge UI for appliance: ${applianceName} (${identify.haId})`);
+            await this.schema.finishIdentifyAppliance(
+                identify.requestId,
+                'success',
+                identifyLines.join('\n'),
+                undefined,
+                applianceName);
+        } catch (err) {
+            logError(implementation.log, 'Identify requested from Homebridge UI', err);
+            implementation.log.error(`Identify failed from Homebridge UI for appliance: ${applianceName} (${identify.haId})`);
+            const message = err instanceof Error ? err.message : String(err);
+            await this.schema.finishIdentifyAppliance(
+                identify.requestId,
+                'error',
+                identifyLines.join('\n'),
+                message,
+                applianceName);
+        } finally {
+            removeListener();
         }
     }
 
